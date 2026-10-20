@@ -1,0 +1,8 @@
+{
+  "date": "2026-10-20T15:08:02+00:00",
+  "hypothesis": "Low EV/EBIT + insiders buying",
+  "sources": [],
+  "result": null,
+  "explanation": "Not testable with free daily price data: Historical EV/EBIT ratios and historical insider transaction logs are not available via yfinance price history or fundamental snapshots.",
+  "code": "import yfinance as yf\nimport pandas as pd\nimport numpy as np\nimport json\nimport sys\nfrom datetime import date\n\ndef main():\n    # Hypothesis requires historical EV/EBIT and historical insider trading data.\n    # yfinance price history (yf.download) only provides OHLCV.\n    # yfinance Ticker object provides *current* snapshots of fundamentals/insiders, not point-in-time history.\n    # Backtesting requires knowing these values on day T without look-ahead.\n    # Therefore, the required data is missing.\n    \n    print('RESULT {\"unsupported\": \"Historical EV/EBIT ratios and historical insider transaction logs are not available via yfinance price history or fundamental snapshots.\"}')\n\nif __name__ == \"__main__\":\n    main()\n"
+}

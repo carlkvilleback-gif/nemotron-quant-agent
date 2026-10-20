@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-20T15:12:50+00:00",
+  "hypothesis": "Buy SPY when it falls 2% in a day, sell at the next close",
+  "sources": [],
+  "result": {
+    "total_return": 0.4102859778354411,
+    "buy_and_hold_return": 3.5435783445097844,
+    "sharpe": 0.43488358540499145,
+    "max_drawdown": -0.10866550548371522,
+    "n_trades": 98
+  },
+  "explanation": "\n\nFrom 2015 through the present, buying SPY after a 2% one‑day drop and exiting at the next close produced a total return of about 41% over roughly 98 trades. By contrast, simply buying and holding SPY over the same period returned around 354%, showing the strategy lagged far behind the market. The approach delivered a low Sharpe ratio of 0.43 and a modest maximum drawdown of –10.9%, indicating limited reward for the risk taken, leading to a Weak verdict.",
+  "code": "import yfinance as yf\nimport pandas as pd\nimport numpy as np\nimport json\nfrom datetime import datetime\n\n# Download SPY daily data from 2015-01-01 to today\ndf = yf.download(\"SPY\", start=\"2015-01-01\", auto_adjust=True, progress=False)\n\n# Extract close prices, handling potential MultiIndex columns\nclose = df[\"Close\"].squeeze()\n\n# Ensure proper Series with datetime index\nif not isinstance(close.index, pd.DatetimeIndex):\n    close.index = pd.to_datetime(close.index)\nclose = close.sort_index()\n\n# Calculate daily close-to-close returns\nreturns = close.pct_change().dropna()\n\n# Signal: 1 if previous day's return <= -2% (i.e., fell 2% or more), else 0\n# shift(1) aligns previous day's return to current day for execution\nsignal = (returns.shift(1) <= -0.02).astype(float)\nsignal = signal.fillna(0)  # first day has no previous day\n\n# Strategy returns: capture the return of the day after a 2% drop day\nstrategy_returns = returns * signal\n\n# Buy-and-hold returns over the same full period\nbh_returns = returns\n\n# Total cumulative returns\nstrategy_cum = (1 + strategy_returns).prod() - 1\nbh_cum = (1 + bh_returns).prod() - 1\n\n# Annualized Sharpe ratio (risk-free = 0)\ndaily_mean = strategy_returns.mean()\ndaily_std = strategy_returns.std()\nsharpe = float(daily_mean / daily_std * np.sqrt(252)) if daily_std > 0 else 0.0\n\n# Maximum drawdown\nequity = (1 + strategy_returns).cumprod()\npeak = equity.cummax()\ndrawdown = (equity - peak) / peak\nmax_drawdown = float(drawdown.min())\n\n# Number of trades executed\nn_trades = int(signal.sum())\n\n# Output result\nresult = {\n    \"total_return\": float(strategy_cum),\n    \"buy_and_hold_return\": float(bh_cum),\n    \"sharpe\": sharpe,\n    \"max_drawdown\": max_drawdown,\n    \"n_trades\": n_trades\n}\nprint(f'RESULT {json.dumps(result)}')\n"
+}
