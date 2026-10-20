@@ -33,9 +33,12 @@ Rules:
 - Use only yfinance, pandas and numpy.
 - Download daily data from 2015-01-01 to today with yf.download(ticker, start=..., auto_adjust=True, progress=False).
   yfinance may return MultiIndex columns, so take the close with df["Close"].squeeze().
+  Yahoo sometimes returns an empty DataFrame from cloud servers: retry each download up to 3 times with
+  time.sleep(3) between tries, and raise an exception if it is still empty.
 - If the hypothesis needs data that yfinance price history cannot give (historical fundamentals like EV/EBIT,
   insider trades, earnings surprises), do NOT invent or approximate it. Instead the script must only do
   print('RESULT {{"unsupported": "<one sentence on which data is missing>"}}').
+  Only use "unsupported" for a kind of data that does not exist in price history, never for a failed download or a bug.
 - Execution convention (always use it so the same idea gives the same answer): the signal is computed
   from day T's close, the trade is entered at day T's close, and you earn close-to-close returns from T+1.
   In pandas: position = signal.shift(1). Unless the hypothesis says otherwise, "sell next day" means exit at the T+1 close.

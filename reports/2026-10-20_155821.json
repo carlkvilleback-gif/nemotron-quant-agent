@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-20T15:58:21+00:00",
+  "hypothesis": "Buy QQQ when VIX closes above 30, sell after 10 trading days",
+  "sources": [],
+  "result": {
+    "total_return": 1.5753840672234931,
+    "buy_and_hold_return": 6.604691545880844,
+    "spy_same_days_return": 1.1618451793817801,
+    "time_in_market": 0.11395819285232636,
+    "sharpe": 0.6719377804733553,
+    "max_drawdown": -0.22417723797901024,
+    "n_trades": 158
+  },
+  "explanation": "\n\nFrom 2015 onward the rule bought QQQ whenever the VIX closed above 30 and exited ten trading days later, producing a cumulative gain of about 158% while being invested only roughly one‑ninth of the time. On the days the strategy was actually in the market it outperformed the S&P 500, delivering ~158% versus the index’s ~116% over those same periods. Compared with a simple buy‑and‑hold of QQQ, which rose ~661%, the approach lagged substantially because it missed most of the bull run, though its Sharpe of 0.67 and a maximum drawdown of around 22% indicate modest risk. Overall the result is modestly better than the index when active but far weaker than a passive hold, so the verdict is Mixed.",
+  "code": "import yfinance as yf\nimport pandas as pd\nimport numpy as np\nimport json\nfrom datetime import date\n\n# Download data\nstart = \"2015-01-01\"\nend = date.today().isoformat()\ntickers = [\"QQQ\", \"^VIX\", \"SPY\"]\ndata = {}\n\nfor t in tickers:\n    try:\n        df = yf.download(t, start=start, end=end, auto_adjust=True, progress=False)\n        if df.empty:\n            print(f'RESULT {{\"unsupported\": \"No data returned for {t}\"}}')\n            exit()\n        close = df[\"Close\"].squeeze()\n        close.name = t\n        data[t] = close\n    except Exception as e:\n        print(f'RESULT {{\"unsupported\": \"Failed to download {t}: {e}\"}}')\n        exit()\n\n# Align on common dates\ndf = pd.DataFrame(data).dropna()\nqqq = df[\"QQQ\"]\nvix = df[\"^VIX\"]\nspy = df[\"SPY\"]\n\n# Signal: VIX close > 30\nsignal = (vix > 30).astype(int)\n\n# Position: Enter at T+1 close, hold for 10 trading days (T+1 to T+10)\n# shift(1) moves entry to T+1, rolling(10).max() holds for 10 days\nposition = signal.shift(1).rolling(10, min_periods=1).max().fillna(0).astype(int)\n\n# Daily returns\nqqq_ret = qqq.pct_change()\nspy_ret = spy.pct_change()\n\n# Strategy returns\nstrat_ret = position * qqq_ret\nspy_strat_ret = position * spy_ret\n\n# Metrics\ntotal_return = float((1 + strat_ret).prod() - 1)\nbuy_and_hold_return = float(qqq.iloc[-1] / qqq.iloc[0] - 1)\nspy_same_days_return = float((1 + spy_strat_ret).prod() - 1)\ntime_in_market = float(position.mean())\n\n# Sharpe Ratio (annualized, risk-free=0)\ndaily_ret = strat_ret.dropna()\nif daily_ret.std() > 0:\n    sharpe = float(daily_ret.mean() / daily_ret.std() * np.sqrt(252))\nelse:\n    sharpe = 0.0\n\n# Max Drawdown\nequity = (1 + strat_ret).cumprod()\npeak = equity.cummax()\ndrawdown = (equity - peak) / peak\nmax_drawdown = float(drawdown.min())\n\nn_trades = int(signal.sum())\n\nresult = {\n    \"total_return\": total_return,\n    \"buy_and_hold_return\": buy_and_hold_return,\n    \"spy_same_days_return\": spy_same_days_return,\n    \"time_in_market\": time_in_market,\n    \"sharpe\": sharpe,\n    \"max_drawdown\": max_drawdown,\n    \"n_trades\": n_trades\n}\n\nprint(f'RESULT {json.dumps(result)}')\n"
+}
