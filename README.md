@@ -26,11 +26,11 @@ Tavily news search ──► Nemotron Super ──► hypothesis
      sanity checks ──► Nemotron Super explains ──► report + UI
 ```
 
-1. **Find an idea** (`find_hypothesis`): Tavily searches today's market news, Nemotron 3 Super turns the headlines into one concrete rule with Yahoo Finance tickers.
+1. **Find an idea** (`find_hypothesis`): Tavily searches today's market news, Nemotron 3 Super turns the headlines into one concrete rule with Yahoo Finance tickers. It sees every idea it already tested and how it went (`past_ideas`), so it does not repeat itself and can build on what held up.
 2. **Write the code** (`research`): Nemotron 3 Ultra writes a complete backtest with a fixed execution convention (signal at day T close, enter at T close, close-to-close returns), so the same idea always gives the same answer.
 3. **Run and self-correct**: the script runs in a separate process that never sees the API keys. If it crashes, prints nothing, or reports numbers that cannot be true (a loss over 100%, a positive drawdown, time in market above 100%), the error goes back into the conversation and Ultra fixes its own code.
-4. **Explain**: Nemotron 3 Super writes a short, modest verdict. The key comparison is the **S&P 500 over the same days the strategy was active**, because a trader only runs a strategy while it is on and uses the money elsewhere the rest of the time.
-5. **Check for luck**: when an idea beats the S&P 500, Ultra writes a second script that re-tests it on 2015–2020 and 2021–today separately, after 0.1% trading costs, and with every number in the rule moved about 20% up and down. It only counts as **Robust** if the edge survives both halves, the costs and at least two thirds of the variants; otherwise it is **Fragile**, and a fragile result is never called promising.
+4. **Explain**: Nemotron 3 Super writes a short, modest verdict. The key comparison is the **S&P 500 over the same days the strategy was active**, because a trader only runs a strategy while it is on and uses the money elsewhere the rest of the time. When the idea trades SPY itself that comparison is always zero, so it is compared with the same number of average S&P days instead. Every result includes 0.1% trading costs per trade.
+5. **Check for luck**: when an idea beats the S&P 500, Ultra writes a second script that re-tests it on 2015–2020 and 2021–today separately, with trading costs doubled to 0.2%, and with every number in the rule moved about 20% up and down. It only counts as **Robust** if the edge survives both halves, the costs and at least two thirds of the variants; otherwise it is **Fragile**, and a fragile result is never called promising.
 6. **Refuse to fake it**: if an idea needs data that free price history cannot give (historical EV/EBIT, insider trades), the agent says so instead of inventing a proxy.
 
 Every report gets an equity curve against the S&P 500, and a leaderboard ranks every idea the agent has ever tested by its edge on the days it was invested. A GitHub Actions workflow runs the whole loop every weekday morning and commits the report, so the research log grows without anyone pressing a button.
@@ -68,9 +68,8 @@ python test_agent.py                              # tests for parsing, sandboxin
 
 ## Limitations (honest list)
 
-- Data is free daily prices from Yahoo Finance since 2015: no fundamentals, no delisted tickers (survivorship bias), no trading costs or slippage.
+- Data is free daily prices from Yahoo Finance since 2015: no fundamentals, no delisted tickers (survivorship bias). Costs are a flat 0.1% per trade, no slippage model.
 - Generated code runs in a plain subprocess with a timeout, not a real sandbox. Fine for a demo; production would move it to Nebius Serverless Jobs.
-- Sharpe is annualised with 252 days even for crypto, which trades 365.
 - These are historical backtests, not financial advice.
 
 ## License

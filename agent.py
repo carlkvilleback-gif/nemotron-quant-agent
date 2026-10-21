@@ -26,6 +26,9 @@ IDEA = """Here are today's market news headlines:
 Based on these, propose ONE trading hypothesis that can be backtested on daily price data since 2015.
 - Use only tickers that exist on Yahoo Finance (for example GC=F, CL=F, SPY, TLT, BTC-USD, DX-Y.NYB, ^VIX).
 - State the exact entry rule, exit rule and the ticker traded.
+- Ideas you already tested are listed below. Do not repeat them; a new idea must differ in asset or rule.
+  You may build on what was Robust or Promising, and avoid families that keep coming back Weak.
+{past}
 - Reply with only the hypothesis in one or two sentences, nothing else."""
 
 PROMPT = """Write a complete Python script that backtests this trading hypothesis:
@@ -48,12 +51,21 @@ Rules:
   Unless the hypothesis says otherwise, "sell next day" means exit at the T+1 close.
 - Never use information from day T+1 to decide a trade on day T (no look-ahead bias).
 - Compare the strategy against simply buying and holding the traded asset over the same period.
+- Trading costs: subtract 0.1% from the strategy's return on every entry (round trip). All strategy numbers include it.
+- Sharpe: annualise with sqrt(365) if the traded ticker is crypto (ends in -USD), otherwise sqrt(252).
 - Also download SPY and compute spy_same_days_return: the compounded SPY return over only the days
   the strategy held a position (traders only use a strategy while it is active, so this is the fair benchmark).
+- spy_random_days_return: (1 + mean daily SPY return over the full period) ** (number of days in a position) - 1,
+  i.e. what the same number of average S&P days would have earned.
+- traded_ticker: the Yahoo ticker the strategy trades, as a string.
+- Compute signals, positions and returns on the traded asset's own calendar (crypto trades every day).
+  Do NOT drop the traded asset's days to match SPY; align SPY to the strategy only for the two SPY benchmarks.
+- max_drawdown is negative or zero, e.g. -0.25 for a 25% peak-to-trough fall (min of equity / running max - 1).
 - n_trades is the number of entries (a position opening from flat), not the number of days held.
 - time_in_market is the fraction of days the strategy held a position (0 to 1).
 - At the end print exactly one line starting with RESULT followed by JSON with the keys
-  total_return, buy_and_hold_return, spy_same_days_return, time_in_market, sharpe, max_drawdown, n_trades.
+  traded_ticker, total_return, buy_and_hold_return, spy_same_days_return, spy_random_days_return,
+  time_in_market, sharpe, max_drawdown, n_trades.
 - Before printing RESULT, save the daily equity curves to "equity.csv" with columns date, strategy, spy:
   growth of 1.0 invested in the strategy and in buy-and-hold SPY, both starting at 1.0 on the first date.
 - Reply with only the code in a single ```python block."""
@@ -66,11 +78,12 @@ ROBUST = """This backtest script for the hypothesis below works:
 ```
 
 Write a NEW complete script that checks whether its result is robust or just luck. Keep the same data download,
-execution convention and benchmark logic. Define edge = strategy total return minus spy_same_days_return,
-both compounded over the days the strategy held a position, exactly as in the script above. Compute:
+execution convention, 0.1% trading costs and benchmark logic. Define edge = strategy total return minus the
+benchmark: spy_random_days_return if the strategy trades SPY itself, otherwise spy_same_days_return, computed
+exactly as in the script above. Compute:
 - first_half_edge: the edge using only 2015-01-01 to 2020-12-31
 - second_half_edge: the edge using only 2021-01-01 to today
-- cost_edge: the edge over the full period after subtracting 0.1% from the strategy on every entry (trading costs)
+- cost_edge: the edge over the full period with trading costs doubled to 0.2% per entry
 - variants: the full-period edge for at least 4 variants that move each main number in the rule (thresholds,
   lookbacks, holding days) about 20% up and down, as a list of {{"label": "<what changed>", "edge": <number>}}
 Do not write any files. At the end print exactly one line starting with RESULT followed by JSON with the keys
@@ -83,8 +96,8 @@ EXPLAIN = """A trader tested this hypothesis on daily data since 2015:
 Backtest result:
 {result}
 
-In 3-4 plain English sentences: what happened historically, whether it beat the S&P 500 over the same
-active days (the fair comparison, since a trader runs other strategies the rest of the time), how it compares
+In 3-4 plain English sentences: what happened historically (after trading costs), whether it beat the fair
+S&P 500 benchmark (same active days, or average days when the strategy trades SPY itself), how it compares
 with just buying and holding, how risky it was, whether the robustness check (if included) says the edge is real
 or likely luck, and a one-word verdict (Promising / Mixed / Weak). A fragile result can never be Promising.
 Be honest and modest, no hype."""
@@ -97,7 +110,7 @@ def find_hypothesis(client):
     sources = [{"title": r["title"], "url": r["url"]} for r in news["results"]]
     headlines = "\n".join(f"- {r['title']}: {r['content'][:300]}" for r in news["results"])
     answer = client.chat.completions.create(
-        model=WRITER, messages=[{"role": "user", "content": IDEA.format(headlines=headlines)}],
+        model=WRITER, messages=[{"role": "user", "content": IDEA.format(headlines=headlines, past=past_ideas())}],
     ).choices[0].message.content
     return answer.strip(), sources
 
@@ -125,9 +138,11 @@ def sanity_problems(result):
     """Code that runs can still be wrong; catch numbers that cannot be true."""
     if "unsupported" in result:
         return None
-    keys = ["total_return", "buy_and_hold_return", "spy_same_days_return", "time_in_market",
-            "sharpe", "max_drawdown", "n_trades"]
+    keys = ["total_return", "buy_and_hold_return", "spy_same_days_return", "spy_random_days_return",
+            "time_in_market", "sharpe", "max_drawdown", "n_trades"]
     missing = [k for k in keys if not isinstance(result.get(k), (int, float))]
+    if not isinstance(result.get("traded_ticker"), str):
+        missing.append("traded_ticker (a string)")
     if missing:
         return f"RESULT is missing numeric values for: {missing}"
     problems = []
@@ -140,6 +155,28 @@ def sanity_problems(result):
     if result["n_trades"] < 1:
         problems.append("n_trades is 0, so the entry rule never triggered")
     return "; ".join(problems) or None
+
+
+def benchmark(result):
+    """The fair S&P comparison as (label, return)."""
+    if result.get("traded_ticker", "").upper() == "SPY":
+        # SPY against SPY on the same days is always a zero edge; ask instead whether these days beat average days
+        return "S&P 500, average days", result["spy_random_days_return"]
+    return "S&P 500, same days", result["spy_same_days_return"]
+
+
+def verdict_word(report):
+    return (re.findall(r"\b(Promising|Mixed|Weak)\b", report["explanation"]) or ["–"])[-1]
+
+
+def past_ideas(reports_dir=REPORTS_DIR, limit=15):
+    """The agent's memory: what it already tested and how that went."""
+    lines = []
+    for path in sorted(reports_dir.glob("*.json"), reverse=True)[:limit]:
+        report = json.loads(path.read_text(encoding="utf-8"))
+        robustness = (report.get("robustness") or {}).get("verdict")
+        lines.append(f"- {report['hypothesis']} -> {verdict_word(report)}" + (f", {robustness}" if robustness else ""))
+    return "\n".join(lines) or "- none yet"
 
 
 def robust_problems(result):
@@ -212,7 +249,7 @@ def readable(result, robustness=None):
         f"Strategy total return: {result['total_return']:+.1%}\n"
         f"Buy-and-hold total return: {result['buy_and_hold_return']:+.1%}\n"
         f"Time in market: {result['time_in_market']:.0%} of days\n"
-        f"S&P 500 (SPY) return over only the days the strategy was active: {result['spy_same_days_return']:+.1%}\n"
+        f"Fair benchmark, {benchmark(result)[0]}: {benchmark(result)[1]:+.1%}\n"
         f"Sharpe ratio: {result['sharpe']:.2f}\n"
         f"Max drawdown: {result['max_drawdown']:.1%}\n"
         f"Number of trades: {result['n_trades']}"
@@ -222,7 +259,7 @@ def readable(result, robustness=None):
         text += (
             f"\nRobustness check (edge = return minus S&P on the same days): "
             f"2015-2020 {robustness['first_half_edge']:+.1%}, 2021-today {robustness['second_half_edge']:+.1%}, "
-            f"after 0.1% trading costs {robustness['cost_edge']:+.1%}, "
+            f"with doubled 0.2% trading costs {robustness['cost_edge']:+.1%}, "
             f"{beat} of {len(robustness['variants'])} slightly changed rules still beat the S&P. "
             f"Verdict: {robustness['verdict']}"
         )
@@ -261,7 +298,7 @@ def run(client, hypothesis=None):
     equity = load_equity(EQUITY_FILE) if result else None  # read now: the robustness run reuses generated/
 
     robustness = None
-    if result and "unsupported" not in result and result["total_return"] > result["spy_same_days_return"]:
+    if result and "unsupported" not in result and result["total_return"] > benchmark(result)[1]:
         print("\nIt beat the S&P 500 on its active days. Checking whether that was luck...")
         robustness = research(client, ROBUST.format(hypothesis=hypothesis, code=code), robust_problems)
         if robustness:

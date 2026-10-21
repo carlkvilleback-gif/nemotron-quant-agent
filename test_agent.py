@@ -1,9 +1,14 @@
 import json
 
-from agent import extract_code, parse_result, readable, run_backtest, sanity_problems
+from agent import benchmark, extract_code, parse_result, readable, run_backtest, sanity_problems
 
-good = {"total_return": 0.6, "buy_and_hold_return": 262.3, "spy_same_days_return": 0.2, "time_in_market": 0.12,
-        "sharpe": 0.7, "max_drawdown": -0.1, "n_trades": 316}
+good = {"traded_ticker": "GC=F", "total_return": 0.6, "buy_and_hold_return": 262.3, "spy_same_days_return": 0.2,
+        "spy_random_days_return": 0.15, "time_in_market": 0.12, "sharpe": 0.7, "max_drawdown": -0.1, "n_trades": 316}
+assert "traded_ticker" in sanity_problems({**good, "traded_ticker": None})
+
+# trading SPY itself: same-days SPY is the strategy, so compare with average SPY days instead
+assert benchmark(good) == ("S&P 500, same days", 0.2)
+assert benchmark({**good, "traded_ticker": "spy"}) == ("S&P 500, average days", 0.15)
 assert "time_in_market" in sanity_problems({**good, "time_in_market": 45})  # percent instead of fraction
 assert sanity_problems(good) is None
 assert "100%" in sanity_problems({**good, "total_return": -515.6})
@@ -52,5 +57,15 @@ assert robust_verdict({**robust, "variants": [{"label": "a", "edge": 0.1}, {"lab
 assert robust_problems({**robust, "variants": [{"label": "a"}]}) is not None
 assert robust_problems({"unsupported": "x"}) is not None
 assert "Verdict: Robust" in readable(good, {**robust, "verdict": "Robust"})
+
+# memory: past reports become a list the idea prompt can avoid repeating
+from agent import past_ideas
+
+with tempfile.TemporaryDirectory() as tmp:
+    assert past_ideas(Path(tmp)) == "- none yet"
+    report = {"hypothesis": "Buy gold when the dollar falls", "explanation": "... Verdict: **Weak**.",
+              "robustness": {"verdict": "Fragile"}}
+    (Path(tmp) / "2026-01-01_000000.json").write_text(json.dumps(report), encoding="utf-8")
+    assert past_ideas(Path(tmp)) == "- Buy gold when the dollar falls -> Weak, Fragile"
 
 print("all tests passed")

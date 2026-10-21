@@ -1,11 +1,10 @@
 import json
-import re
 from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
 
-from agent import REPORTS_DIR, make_client, run
+from agent import REPORTS_DIR, benchmark, make_client, run, verdict_word
 
 # shortcut: counts today's reports on disk, so it resets if the host wipes the disk; enough to stop a public demo
 # from draining the API credits, swap for a real per-user limit if this ever gets real traffic
@@ -37,9 +36,9 @@ def show(report):
     if result:
         cols = st.columns(3)
         cols[0].metric("Strategy", f"{result['total_return']:+.0%}")
-        if "spy_same_days_return" in result:  # older reports predate this metric
-            beat = result["total_return"] - result["spy_same_days_return"]
-            cols[1].metric("S&P 500, same days", f"{result['spy_same_days_return']:+.0%}", f"{beat:+.0%} vs S&P")
+        if "spy_random_days_return" in result:  # older reports predate the fair benchmark
+            label, bench = benchmark(result)
+            cols[1].metric(label, f"{bench:+.0%}", f"{result['total_return'] - bench:+.0%} vs S&P")
             cols[2].metric("Time in market", f"{result['time_in_market']:.0%}")
         cols = st.columns(3)
         cols[0].metric("Buy & hold", f"{result['buy_and_hold_return']:+.0%}")
@@ -57,7 +56,7 @@ def show(report):
         icon = "✅" if rob["verdict"] == "Robust" else "⚠️"
         st.markdown(f"**{icon} Robustness check: {rob['verdict']}** · edge vs S&P on the same days")
         checks = [("2015–2020", rob["first_half_edge"]), ("2021–today", rob["second_half_edge"]),
-                  ("After 0.1% trading costs", rob["cost_edge"])] + [(v["label"], v["edge"]) for v in rob["variants"]]
+                  ("Doubled 0.2% trading costs", rob["cost_edge"])] + [(v["label"], v["edge"]) for v in rob["variants"]]
         st.dataframe(
             pd.DataFrame(checks, columns=["Test", "Edge"]), hide_index=True,
             column_config={"Edge": st.column_config.NumberColumn(format="percent")},
@@ -74,24 +73,24 @@ def leaderboard(reports):
     rows = [
         {
             "Hypothesis": r["hypothesis"],
-            "Edge vs S&P, same days": r["result"]["total_return"] - r["result"]["spy_same_days_return"],
+            "Edge vs S&P": r["result"]["total_return"] - benchmark(r["result"])[1],
             "Strategy": r["result"]["total_return"],
             "Time in market": r["result"]["time_in_market"],
             "Robustness": (r.get("robustness") or {}).get("verdict", "–"),  # only run when the idea beat the S&P
-            "Verdict": (re.findall(r"\b(Promising|Mixed|Weak)\b", r["explanation"]) or ["–"])[-1],
+            "Verdict": verdict_word(r),
         }
         for r in reports
-        if r["result"] and "spy_same_days_return" in r["result"]  # older reports predate the fair benchmark
+        if r["result"] and "spy_random_days_return" in r["result"]  # older reports predate the fair benchmark
     ]
     if not rows:
         return
     st.header("🏆 Leaderboard")
-    st.caption("Every idea the agent has tested, ranked by how much it beat the S&P 500 over the days it was actually invested.")
+    st.caption("Every idea the agent has tested, ranked by how much it beat the S&P 500 on the days it was invested (or average S&P days when the idea trades SPY itself). All numbers include 0.1% trading costs per trade.")
     percent = st.column_config.NumberColumn(format="percent")
     st.dataframe(
-        pd.DataFrame(rows).sort_values("Edge vs S&P, same days", ascending=False),
+        pd.DataFrame(rows).sort_values("Edge vs S&P", ascending=False),
         hide_index=True,
-        column_config={"Edge vs S&P, same days": percent, "Strategy": percent, "Time in market": percent},
+        column_config={"Edge vs S&P": percent, "Strategy": percent, "Time in market": percent},
     )
     st.header("📄 Reports")
 
