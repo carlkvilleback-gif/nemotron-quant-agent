@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-21T12:49:52+00:00",
+  "hypothesis": "Enter a long position in SPY at the open of the day following a close where ^VIX > 30, and exit the position at the close of the first day when ^VIX < 20 (or after a maximum of 5 trading days, whichever occurs first).",
+  "sources": [
+    {
+      "title": "Finance and Markets - WSJ.com",
+      "url": "https://www.wsj.com/finance"
+    },
+    {
+      "title": "🚨 MASSIVE NEWS Hits Markets This Week! (Bull Market Back?)",
+      "url": "https://www.youtube.com/watch?v=qO1WP-cm2zI"
+    },
+    {
+      "title": "Continued Tech Weakness - Archer Financial Services",
+      "url": "https://www.archerfinancials.com/continued-tech-weakness"
+    },
+    {
+      "title": "Bullish sentiment on stocks has cratered. Why that could be good for stocks",
+      "url": "https://www.cnbc.com/2026/10/20/bullish-sentiment-on-stocks-has-cratered-why-that-could-be-good-for-stocks.html"
+    },
+    {
+      "title": "Thoughts on several issues of interest to the market | Bank for International Settlements",
+      "url": "https://www.bis.org/speeches/20261021-thoughts-several-issues-interest-market"
+    }
+  ],
+  "result": {
+    "total_return": 0.6204175146072195,
+    "buy_and_hold_return": 3.5433988892933304,
+    "spy_same_days_return": 0.6204175146072195,
+    "time_in_market": 0.06572295247724974,
+    "sharpe": 0.46288449489661015,
+    "max_drawdown": -0.1936312786261119,
+    "n_trades": 39
+  },
+  "explanation": "\n\nFrom 2015 onward the rule generated 39 trades, being invested only about 7 % of the time and delivering a total gain of roughly 62 %. On the exact days the strategy was in the market the S&P 500 itself also rose about 62 %, so the approach did not outperform the index on its active periods. Compared with a simple buy‑and‑hold of SPY, which gained about 354 % over the same period, the strategy lagged considerably and showed modest risk‑adjusted performance (Sharpe ≈ 0.46) with a maximum drawdown near 20 %. Overall the result is best described as **Weak**.",
+  "code": "import yfinance as yf\nimport pandas as pd\nimport numpy as np\nimport time\nimport json\nfrom datetime import date\n\ndef download_with_retry(ticker, start, max_tries=3):\n    for attempt in range(max_tries):\n        try:\n            df = yf.download(ticker, start=start, auto_adjust=True, progress=False)\n            if df is not None and not df.empty:\n                # Handle MultiIndex columns\n                if isinstance(df.columns, pd.MultiIndex):\n                    close = df[\"Close\"].squeeze()\n                else:\n                    close = df[\"Close\"]\n                if isinstance(close, pd.DataFrame):\n                    close = close.squeeze()\n                return close.dropna()\n        except Exception:\n            pass\n        if attempt < max_tries - 1:\n            time.sleep(3)\n    raise RuntimeError(f\"Failed to download data for {ticker} after {max_tries} attempts\")\n\n# Download data\nstart_date = \"2015-01-01\"\nspy_close = download_with_retry(\"SPY\", start_date)\nvix_close = download_with_retry(\"^VIX\", start_date)\n\n# Align on common dates\ncommon_idx = spy_close.index.intersection(vix_close.index)\nspy_close = spy_close.loc[common_idx]\nvix_close = vix_close.loc[common_idx]\n\n# Daily returns for SPY\nspy_ret = spy_close.pct_change().fillna(0.0)\n\n# Signals\nentry_signal = (vix_close > 30).values\nexit_trigger = (vix_close < 20).values\n\nn = len(spy_close)\nposition = np.zeros(n, dtype=float)\nin_position = False\ndays_held = 0\nn_trades = 0\n\nfor i in range(n):\n    # Position for day i is determined by state at start of day i (after previous close)\n    position[i] = 1.0 if in_position else 0.0\n\n    if in_position:\n        days_held += 1\n        # Check exit at close of day i\n        if exit_trigger[i] or days_held >= 5:\n            in_position = False\n            days_held = 0\n    else:\n        # Check entry at close of day i (for position starting day i+1)\n        if entry_signal[i]:\n            in_position = True\n            days_held = 0\n            n_trades += 1\n\n# Strategy returns (position held on day i earns return of day i)\nstrat_ret = position * spy_ret.values\n\n# Metrics\ntotal_return = float(np.prod(1 + strat_ret) - 1)\nbuy_and_hold_return = float(np.prod(1 + spy_ret.values) - 1)\n\n# Spy same days return (compounded SPY return only on days position == 1)\nactive_days = position == 1\nif active_days.any():\n    spy_same_days_return = float(np.prod(1 + spy_ret.values[active_days]) - 1)\nelse:\n    spy_same_days_return = 0.0\n\ntime_in_market = float(position.sum() / n)\n\n# Sharpe (annualized, risk-free = 0)\nstrat_mean = np.mean(strat_ret)\nstrat_std = np.std(strat_ret)\nsharpe = float(strat_mean / strat_std * np.sqrt(252)) if strat_std > 0 else 0.0\n\n# Max Drawdown\nequity = np.cumprod(1 + strat_ret)\npeak = np.maximum.accumulate(equity)\ndrawdown = (equity - peak) / peak\nmax_drawdown = float(drawdown.min())\n\nresult = {\n    \"total_return\": total_return,\n    \"buy_and_hold_return\": buy_and_hold_return,\n    \"spy_same_days_return\": spy_same_days_return,\n    \"time_in_market\": time_in_market,\n    \"sharpe\": sharpe,\n    \"max_drawdown\": max_drawdown,\n    \"n_trades\": n_trades\n}\n\nprint(f'RESULT {json.dumps(result)}')\n"
+}
