@@ -1,8 +1,0 @@
-{
-  "date": "2026-10-20T15:24:10+00:00",
-  "hypothesis": "Buy when the fear and greend index is at extreme fear and hold and sell on greed",
-  "sources": [],
-  "result": null,
-  "explanation": "Not testable with free daily price data: Fear and Greed Index historical data is not available via yfinance",
-  "code": "import yfinance as yf\nimport pandas as pd\nimport numpy as np\nimport json\nfrom datetime import datetime\n\n# The hypothesis requires the \"Fear and Greed Index\" (CNN), which is not available via yfinance price history.\n# yfinance only provides OHLCV data, fundamentals, and limited alternative data, but not the Fear & Greed Index.\nprint('RESULT {\"unsupported\": \"Fear and Greed Index historical data is not available via yfinance\"}')\n"
-}
