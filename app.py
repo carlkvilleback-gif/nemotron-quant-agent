@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timezone
 
+import pandas as pd
 import streamlit as st
 
 from agent import REPORTS_DIR, make_client, run
@@ -43,6 +44,13 @@ def show(report):
         cols[0].metric("Buy & hold", f"{result['buy_and_hold_return']:+.0%}")
         cols[1].metric("Max drawdown", f"{result['max_drawdown']:.0%}")
         cols[2].metric("Trades", result["n_trades"])
+    if report.get("equity"):  # older reports have no curve
+        eq = report["equity"]
+        st.line_chart(
+            pd.DataFrame({"Strategy": eq["strategy"], "S&P 500 (buy & hold)": eq["spy"]}, index=pd.to_datetime(eq["date"])),
+            y_label="Growth of $1",
+            color=["#76B900", "#888888"],  # Strategy NVIDIA green, S&P grey
+        )
     st.write(report["explanation"])
     if report["sources"]:
         st.markdown("**Inspired by:** " + " · ".join(f"[{s['title']}]({s['url']})" for s in report["sources"]))

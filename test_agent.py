@@ -29,4 +29,16 @@ assert result == good and error is None
 result, error = run_backtest(f"print('RESULT {json.dumps({**good, 'max_drawdown': 91.9})}')")
 assert result is None and "impossible" in error
 
+# equity curve: daily rows become weekly points, a missing file means no chart
+from pathlib import Path
+import tempfile
+from agent import load_equity
+
+with tempfile.TemporaryDirectory() as tmp:
+    csv = Path(tmp) / "equity.csv"
+    csv.write_text("date,strategy,spy\n2024-01-01,1.0,1.0\n2024-01-02,1.1,1.01\n2024-01-09,1.2,1.02\n")
+    eq = load_equity(csv)
+    assert eq["date"] == ["2024-01-07", "2024-01-14"] and eq["strategy"] == [1.1, 1.2]
+    assert load_equity(Path(tmp) / "missing.csv") is None
+
 print("all tests passed")

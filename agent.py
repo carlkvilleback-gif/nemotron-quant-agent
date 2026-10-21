@@ -6,6 +6,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pandas as pd
 from dotenv import load_dotenv
 from openai import OpenAI
 from tavily import TavilyClient
@@ -16,6 +17,7 @@ CODER = "nvidia/Nemotron-3-Ultra-550b-a55b"  # big reasoning model: writes and f
 WRITER = "nvidia/nemotron-3-super-120b-a12b"  # faster model: explains the result
 MAX_ATTEMPTS = 3
 BACKTEST_FILE = Path("generated/backtest.py")
+EQUITY_FILE = BACKTEST_FILE.parent / "equity.csv"
 REPORTS_DIR = Path("reports")
 
 IDEA = """Here are today's market news headlines:
@@ -46,9 +48,12 @@ Rules:
 - Compare the strategy against simply buying and holding the traded asset over the same period.
 - Also download SPY and compute spy_same_days_return: the compounded SPY return over only the days
   the strategy held a position (traders only use a strategy while it is active, so this is the fair benchmark).
+- n_trades is the number of entries (a position opening from flat), not the number of days held.
 - time_in_market is the fraction of days the strategy held a position (0 to 1).
 - At the end print exactly one line starting with RESULT followed by JSON with the keys
   total_return, buy_and_hold_return, spy_same_days_return, time_in_market, sharpe, max_drawdown, n_trades.
+- Before printing RESULT, save the daily equity curves to "equity.csv" with columns date, strategy, spy:
+  growth of 1.0 invested in the strategy and in buy-and-hold SPY, both starting at 1.0 on the first date.
 - Reply with only the code in a single ```python block."""
 
 EXPLAIN = """A trader tested this hypothesis on daily data since 2015:
@@ -123,8 +128,9 @@ def run_backtest(code):
     env["PYTHONIOENCODING"] = "utf-8"
     try:
         proc = subprocess.run(
-            [sys.executable, str(BACKTEST_FILE)],
+            [sys.executable, BACKTEST_FILE.name],
             capture_output=True, text=True, encoding="utf-8", timeout=120, env=env,
+            cwd=BACKTEST_FILE.parent,  # so equity.csv lands in generated/
         )
     except subprocess.TimeoutExpired:
         return None, "The script took longer than 120 seconds and was stopped."
@@ -171,6 +177,19 @@ def readable(result):
     )
 
 
+def load_equity(path):
+    """Weekly points keep the report small; the chart looks the same. None if the script skipped the file."""
+    try:
+        df = pd.read_csv(path, index_col="date", parse_dates=True)[["strategy", "spy"]].resample("W").last().dropna()
+    except (FileNotFoundError, KeyError, ValueError):
+        return None
+    return {
+        "date": df.index.strftime("%Y-%m-%d").tolist(),
+        "strategy": df["strategy"].round(4).tolist(),
+        "spy": df["spy"].round(4).tolist(),
+    }
+
+
 def make_client():
     load_dotenv()
     return OpenAI(base_url="https://api.tokenfactory.nebius.com/v1/", api_key=os.environ["NEBIUS_API_KEY"])
@@ -184,6 +203,7 @@ def run(client, hypothesis=None):
         hypothesis, sources = find_hypothesis(client)
     print(f"Hypothesis: {hypothesis}\n")
 
+    EQUITY_FILE.unlink(missing_ok=True)  # never show the previous run's curve
     result = research(client, hypothesis)
     if result is None:
         explanation = f"The agent could not get a working backtest after {MAX_ATTEMPTS} attempts."
@@ -205,6 +225,7 @@ def run(client, hypothesis=None):
         "result": result,
         "explanation": explanation,
         "code": BACKTEST_FILE.read_text(encoding="utf-8") if BACKTEST_FILE.exists() else "",
+        "equity": load_equity(EQUITY_FILE) if result else None,
     }
     print(f"\nSaved {save_report(report)}")
     return report
