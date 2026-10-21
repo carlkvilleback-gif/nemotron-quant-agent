@@ -43,7 +43,9 @@ Rules:
   Only use "unsupported" for a kind of data that does not exist in price history, never for a failed download or a bug.
 - Execution convention (always use it so the same idea gives the same answer): the signal is computed
   from day T's close, the trade is entered at day T's close, and you earn close-to-close returns from T+1.
-  In pandas: position = signal.shift(1). Unless the hypothesis says otherwise, "sell next day" means exit at the T+1 close.
+  In pandas: first build `holding`, a daily series that is 1 on EVERY day the rule wants to be invested
+  (the entry day and the whole holding period, not only the entry day), then position = holding.shift(1).
+  Unless the hypothesis says otherwise, "sell next day" means exit at the T+1 close.
 - Never use information from day T+1 to decide a trade on day T (no look-ahead bias).
 - Compare the strategy against simply buying and holding the traded asset over the same period.
 - Also download SPY and compute spy_same_days_return: the compounded SPY return over only the days
@@ -56,6 +58,25 @@ Rules:
   growth of 1.0 invested in the strategy and in buy-and-hold SPY, both starting at 1.0 on the first date.
 - Reply with only the code in a single ```python block."""
 
+ROBUST = """This backtest script for the hypothesis below works:
+{hypothesis}
+
+```python
+{code}
+```
+
+Write a NEW complete script that checks whether its result is robust or just luck. Keep the same data download,
+execution convention and benchmark logic. Define edge = strategy total return minus spy_same_days_return,
+both compounded over the days the strategy held a position, exactly as in the script above. Compute:
+- first_half_edge: the edge using only 2015-01-01 to 2020-12-31
+- second_half_edge: the edge using only 2021-01-01 to today
+- cost_edge: the edge over the full period after subtracting 0.1% from the strategy on every entry (trading costs)
+- variants: the full-period edge for at least 4 variants that move each main number in the rule (thresholds,
+  lookbacks, holding days) about 20% up and down, as a list of {{"label": "<what changed>", "edge": <number>}}
+Do not write any files. At the end print exactly one line starting with RESULT followed by JSON with the keys
+first_half_edge, second_half_edge, cost_edge, variants.
+Reply with only the code in a single ```python block."""
+
 EXPLAIN = """A trader tested this hypothesis on daily data since 2015:
 {hypothesis}
 
@@ -64,7 +85,9 @@ Backtest result:
 
 In 3-4 plain English sentences: what happened historically, whether it beat the S&P 500 over the same
 active days (the fair comparison, since a trader runs other strategies the rest of the time), how it compares
-with just buying and holding, how risky it was, and a one-word verdict (Promising / Mixed / Weak). Be honest and modest, no hype."""
+with just buying and holding, how risky it was, whether the robustness check (if included) says the edge is real
+or likely luck, and a one-word verdict (Promising / Mixed / Weak). A fragile result can never be Promising.
+Be honest and modest, no hype."""
 
 
 def find_hypothesis(client):
@@ -119,7 +142,25 @@ def sanity_problems(result):
     return "; ".join(problems) or None
 
 
-def run_backtest(code):
+def robust_problems(result):
+    if "unsupported" in result:
+        return "This robustness script must test the strategy, not report it as unsupported."
+    missing = [k for k in ("first_half_edge", "second_half_edge", "cost_edge") if not isinstance(result.get(k), (int, float))]
+    variants = result.get("variants")
+    if missing or not isinstance(variants, list) or len(variants) < 2 \
+            or not all(isinstance(v, dict) and isinstance(v.get("edge"), (int, float)) for v in variants):
+        return f"RESULT needs numeric {missing or 'edges'} and at least 2 variants shaped like {{'label': ..., 'edge': number}}"
+    return None
+
+
+def robust_verdict(r):
+    """Real edges survive both halves of the history, trading costs and small changes to the rule."""
+    variants_ok = sum(v["edge"] > 0 for v in r["variants"]) >= len(r["variants"]) * 2 / 3
+    ok = r["first_half_edge"] > 0 and r["second_half_edge"] > 0 and r["cost_edge"] > 0 and variants_ok
+    return "Robust" if ok else "Fragile"
+
+
+def run_backtest(code, check=sanity_problems):
     BACKTEST_FILE.parent.mkdir(exist_ok=True)
     BACKTEST_FILE.write_text(code, encoding="utf-8")
     # shortcut: the generated code runs in a plain subprocess, not a real sandbox; fine for a local demo,
@@ -137,14 +178,15 @@ def run_backtest(code):
     result = parse_result(proc.stdout)
     if result is None:
         return None, (proc.stderr or proc.stdout)[-3000:] or "The script printed no RESULT line."
-    problems = sanity_problems(result)
+    problems = check(result)
     if problems:
         return None, f"The script ran but the numbers are impossible, so the backtest logic has a bug: {problems}"
     return result, None
 
 
-def research(client, hypothesis):
-    messages = [{"role": "user", "content": PROMPT.format(hypothesis=hypothesis)}]
+def research(client, prompt, check=sanity_problems):
+    """Write code, run it, feed errors back; the agent loop shared by the backtest and the robustness check."""
+    messages = [{"role": "user", "content": prompt}]
     for attempt in range(1, MAX_ATTEMPTS + 1):
         print(f"[{attempt}/{MAX_ATTEMPTS}] Nemotron is writing the backtest...")
         answer = client.chat.completions.create(model=CODER, messages=messages).choices[0].message.content
@@ -155,7 +197,7 @@ def research(client, hypothesis):
             error = "Your reply had no ```python code block."
         else:
             print(f"[{attempt}/{MAX_ATTEMPTS}] Running it...")
-            result, error = run_backtest(code)
+            result, error = run_backtest(code, check)
             if result is not None:
                 return result
 
@@ -164,9 +206,9 @@ def research(client, hypothesis):
     return None
 
 
-def readable(result):
+def readable(result, robustness=None):
     # the model misreads raw fractions (262.3 read as +262%), so hand it percentages
-    return (
+    text = (
         f"Strategy total return: {result['total_return']:+.1%}\n"
         f"Buy-and-hold total return: {result['buy_and_hold_return']:+.1%}\n"
         f"Time in market: {result['time_in_market']:.0%} of days\n"
@@ -175,6 +217,16 @@ def readable(result):
         f"Max drawdown: {result['max_drawdown']:.1%}\n"
         f"Number of trades: {result['n_trades']}"
     )
+    if robustness:
+        beat = sum(v["edge"] > 0 for v in robustness["variants"])
+        text += (
+            f"\nRobustness check (edge = return minus S&P on the same days): "
+            f"2015-2020 {robustness['first_half_edge']:+.1%}, 2021-today {robustness['second_half_edge']:+.1%}, "
+            f"after 0.1% trading costs {robustness['cost_edge']:+.1%}, "
+            f"{beat} of {len(robustness['variants'])} slightly changed rules still beat the S&P. "
+            f"Verdict: {robustness['verdict']}"
+        )
+    return text
 
 
 def load_equity(path):
@@ -204,7 +256,18 @@ def run(client, hypothesis=None):
     print(f"Hypothesis: {hypothesis}\n")
 
     EQUITY_FILE.unlink(missing_ok=True)  # never show the previous run's curve
-    result = research(client, hypothesis)
+    result = research(client, PROMPT.format(hypothesis=hypothesis))
+    code = BACKTEST_FILE.read_text(encoding="utf-8") if BACKTEST_FILE.exists() else ""
+    equity = load_equity(EQUITY_FILE) if result else None  # read now: the robustness run reuses generated/
+
+    robustness = None
+    if result and "unsupported" not in result and result["total_return"] > result["spy_same_days_return"]:
+        print("\nIt beat the S&P 500 on its active days. Checking whether that was luck...")
+        robustness = research(client, ROBUST.format(hypothesis=hypothesis, code=code), robust_problems)
+        if robustness:
+            robustness["verdict"] = robust_verdict(robustness)
+            print(f"Robustness: {robustness['verdict']}")
+
     if result is None:
         explanation = f"The agent could not get a working backtest after {MAX_ATTEMPTS} attempts."
     elif "unsupported" in result:
@@ -214,7 +277,7 @@ def run(client, hypothesis=None):
         print(f"\nNumbers: {json.dumps(result)}\n")
         explanation = client.chat.completions.create(
             model=WRITER,
-            messages=[{"role": "user", "content": EXPLAIN.format(hypothesis=hypothesis, result=readable(result))}],
+            messages=[{"role": "user", "content": EXPLAIN.format(hypothesis=hypothesis, result=readable(result, robustness))}],
         ).choices[0].message.content
     print(explanation)
 
@@ -224,8 +287,9 @@ def run(client, hypothesis=None):
         "sources": sources,
         "result": result,
         "explanation": explanation,
-        "code": BACKTEST_FILE.read_text(encoding="utf-8") if BACKTEST_FILE.exists() else "",
-        "equity": load_equity(EQUITY_FILE) if result else None,
+        "code": code,
+        "equity": equity,
+        "robustness": robustness,
     }
     print(f"\nSaved {save_report(report)}")
     return report

@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -51,6 +52,16 @@ def show(report):
             y_label="Growth of $1",
             color=["#76B900", "#888888"],  # Strategy NVIDIA green, S&P grey
         )
+    rob = report.get("robustness")
+    if rob:
+        icon = "✅" if rob["verdict"] == "Robust" else "⚠️"
+        st.markdown(f"**{icon} Robustness check: {rob['verdict']}** · edge vs S&P on the same days")
+        checks = [("2015–2020", rob["first_half_edge"]), ("2021–today", rob["second_half_edge"]),
+                  ("After 0.1% trading costs", rob["cost_edge"])] + [(v["label"], v["edge"]) for v in rob["variants"]]
+        st.dataframe(
+            pd.DataFrame(checks, columns=["Test", "Edge"]), hide_index=True,
+            column_config={"Edge": st.column_config.NumberColumn(format="percent")},
+        )
     st.write(report["explanation"])
     if report["sources"]:
         st.markdown("**Inspired by:** " + " · ".join(f"[{s['title']}]({s['url']})" for s in report["sources"]))
@@ -59,8 +70,35 @@ def show(report):
     st.divider()
 
 
-reports = sorted(REPORTS_DIR.glob("*.json"), reverse=True) if REPORTS_DIR.exists() else []
+def leaderboard(reports):
+    rows = [
+        {
+            "Hypothesis": r["hypothesis"],
+            "Edge vs S&P, same days": r["result"]["total_return"] - r["result"]["spy_same_days_return"],
+            "Strategy": r["result"]["total_return"],
+            "Time in market": r["result"]["time_in_market"],
+            "Robustness": (r.get("robustness") or {}).get("verdict", "–"),  # only run when the idea beat the S&P
+            "Verdict": (re.findall(r"\b(Promising|Mixed|Weak)\b", r["explanation"]) or ["–"])[-1],
+        }
+        for r in reports
+        if r["result"] and "spy_same_days_return" in r["result"]  # older reports predate the fair benchmark
+    ]
+    if not rows:
+        return
+    st.header("🏆 Leaderboard")
+    st.caption("Every idea the agent has tested, ranked by how much it beat the S&P 500 over the days it was actually invested.")
+    percent = st.column_config.NumberColumn(format="percent")
+    st.dataframe(
+        pd.DataFrame(rows).sort_values("Edge vs S&P, same days", ascending=False),
+        hide_index=True,
+        column_config={"Edge vs S&P, same days": percent, "Strategy": percent, "Time in market": percent},
+    )
+    st.header("📄 Reports")
+
+
+reports = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(REPORTS_DIR.glob("*.json"), reverse=True)] if REPORTS_DIR.exists() else []
 if not reports:
     st.info("No research yet. Press Run research.")
-for path in reports:
-    show(json.loads(path.read_text(encoding="utf-8")))
+leaderboard(reports)
+for report in reports:
+    show(report)

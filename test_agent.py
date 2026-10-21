@@ -41,4 +41,16 @@ with tempfile.TemporaryDirectory() as tmp:
     assert eq["date"] == ["2024-01-07", "2024-01-14"] and eq["strategy"] == [1.1, 1.2]
     assert load_equity(Path(tmp) / "missing.csv") is None
 
+# robustness: an edge must survive both halves, costs and most rule tweaks
+from agent import robust_problems, robust_verdict
+
+robust = {"first_half_edge": 0.1, "second_half_edge": 0.2, "cost_edge": 0.05,
+          "variants": [{"label": "a", "edge": 0.1}, {"label": "b", "edge": 0.2}, {"label": "c", "edge": -0.1}]}
+assert robust_problems(robust) is None and robust_verdict(robust) == "Robust"
+assert robust_verdict({**robust, "second_half_edge": -0.01}) == "Fragile"  # only worked in the first half
+assert robust_verdict({**robust, "variants": [{"label": "a", "edge": 0.1}, {"label": "b", "edge": -0.1}]}) == "Fragile"
+assert robust_problems({**robust, "variants": [{"label": "a"}]}) is not None
+assert robust_problems({"unsupported": "x"}) is not None
+assert "Verdict: Robust" in readable(good, {**robust, "verdict": "Robust"})
+
 print("all tests passed")
