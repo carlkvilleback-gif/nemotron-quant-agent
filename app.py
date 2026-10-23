@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timezone
 
+import openai
 import pandas as pd
 import streamlit as st
 
@@ -8,7 +9,7 @@ from agent import REPORTS_DIR, benchmark, make_client, run, verdict_word
 
 # shortcut: counts today's reports on disk, so it resets if the host wipes the disk; enough to stop a public demo
 # from draining the API credits, swap for a real per-user limit if this ever gets real traffic
-MAX_RUNS_PER_DAY = 20
+MAX_RUNS_PER_DAY = 5  # a run costs about $1 of Nemotron Ultra credits, not cents
 
 st.set_page_config(page_title="Nemotron Quant Researcher", page_icon="📈")
 st.title("📈 Nemotron Quant Researcher")
@@ -25,8 +26,16 @@ with st.form("ask"):
         if runs_today >= MAX_RUNS_PER_DAY:
             st.warning(f"The demo is limited to {MAX_RUNS_PER_DAY} runs per day to protect its API credits. Try again tomorrow.")
         else:
-            with st.spinner("Researching... this takes 1-3 minutes"):
-                run(make_client(), hypothesis)
+            try:
+                with st.spinner("Researching... this takes 1-3 minutes"):
+                    run(make_client(), hypothesis)
+            except openai.APIStatusError as e:
+                if e.status_code != 402:
+                    raise
+                st.warning(
+                    "The demo's free API credits are used up for now, so new research is paused. "
+                    "Every report below was produced by the agent earlier and is shown unchanged."
+                )
 
 
 def show(report):

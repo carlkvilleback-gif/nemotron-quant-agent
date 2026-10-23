@@ -226,7 +226,9 @@ def research(client, prompt, check=sanity_problems):
     messages = [{"role": "user", "content": prompt}]
     for attempt in range(1, MAX_ATTEMPTS + 1):
         print(f"[{attempt}/{MAX_ATTEMPTS}] Nemotron is writing the backtest...")
-        answer = client.chat.completions.create(model=CODER, messages=messages).choices[0].message.content
+        response = client.chat.completions.create(model=CODER, messages=messages)
+        answer = response.choices[0].message.content
+        print(f"[{attempt}/{MAX_ATTEMPTS}] used {response.usage.prompt_tokens} prompt + {response.usage.completion_tokens} output tokens")
         messages.append({"role": "assistant", "content": answer})
 
         code = extract_code(answer)
