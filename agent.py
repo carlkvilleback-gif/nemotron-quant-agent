@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
+import openai
 from openai import OpenAI
 from tavily import TavilyClient
 
@@ -16,6 +17,8 @@ sys.stdout.reconfigure(encoding="utf-8")  # Windows console chokes on model outp
 CODER = "nvidia/Nemotron-3-Ultra-550b-a55b"  # big reasoning model: writes and fixes code
 WRITER = "nvidia/nemotron-3-super-120b-a12b"  # faster model: explains the result
 MAX_ATTEMPTS = 3
+MIN_TRADES = 20  # below this a backtest says more about luck than about the rule
+COST_PER_TRADE = 0.001  # the round-trip cost every backtest script is told to subtract
 BACKTEST_FILE = Path("generated/backtest.py")
 EQUITY_FILE = BACKTEST_FILE.parent / "equity.csv"
 REPORTS_DIR = Path("reports")
@@ -89,6 +92,22 @@ exactly as in the script above. Compute:
 Do not write any files. At the end print exactly one line starting with RESULT followed by JSON with the keys
 first_half_edge, second_half_edge, cost_edge, variants.
 Reply with only the code in a single ```python block."""
+
+REVIEW = """You are a strict quant code reviewer. A colleague wrote this backtest for the task below.
+
+TASK:
+{task}
+
+CODE:
+```python
+{code}
+```
+
+Look only for real bugs that would make the numbers wrong: look-ahead bias (using day T+1 information on day T),
+a position that does not last the whole holding period, missing trading costs, a wrong SPY benchmark,
+or a rule that does not match the hypothesis. Ignore style, naming and minor inefficiency.
+If the code is correct, reply with exactly: OK
+Otherwise reply with: BUG: <one or two sentences on the most important bug and how to fix it>"""
 
 EXPLAIN = """A trader tested this hypothesis on daily data since 2015:
 {hypothesis}
@@ -165,6 +184,13 @@ def benchmark(result):
     return "S&P 500, same days", result["spy_same_days_return"]
 
 
+def with_cost(result, cost):
+    """Strategy return if each trade cost `cost` instead of COST_PER_TRADE, without rerunning the backtest.
+    shortcut: treats the cost as a multiplicative hit per entry, which is how the scripts apply it; exact enough
+    for a slider, rerun the backtest if precision matters."""
+    return (1 + result["total_return"]) * ((1 - cost) / (1 - COST_PER_TRADE)) ** result["n_trades"] - 1
+
+
 def verdict_word(report):
     return (re.findall(r"\b(Promising|Mixed|Weak)\b", report["explanation"]) or ["–"])[-1]
 
@@ -221,29 +247,55 @@ def run_backtest(code, check=sanity_problems):
     return result, None
 
 
-def research(client, prompt, check=sanity_problems):
-    """Write code, run it, feed errors back; the agent loop shared by the backtest and the robustness check."""
+def review(client, task, code):
+    """Second agent: Nemotron Super reads the code for bugs that would still run but give wrong numbers."""
+    try:
+        answer = client.chat.completions.create(
+            model=WRITER, messages=[{"role": "user", "content": REVIEW.format(task=task, code=code)}],
+        ).choices[0].message.content
+    except openai.APIError as e:  # the review is an extra safety net, never a reason to stop the run
+        print(f"Reviewer unavailable ({e.__class__.__name__}), running without review")
+        return None
+    return parse_review(answer or "")
+
+
+def parse_review(answer):
+    match = re.search(r"BUG:\s*(.+)", answer, re.DOTALL)
+    return match.group(1).strip() if match else None
+
+
+def research(client, prompt, check=sanity_problems, reviewed=False):
+    """Write code, review it, run it, feed errors back; the loop shared by the backtest and the robustness check.
+    Returns (result, what the reviewer caught)."""
     messages = [{"role": "user", "content": prompt}]
+    caught = []
     for attempt in range(1, MAX_ATTEMPTS + 1):
         print(f"[{attempt}/{MAX_ATTEMPTS}] Nemotron is writing the backtest...")
         # Ultra reasons before it writes; at the default 8192-token cap it was cut off mid-script
         response = client.chat.completions.create(model=CODER, messages=messages, max_tokens=32768)
-        answer = response.choices[0].message.content
+        answer = response.choices[0].message.content or ""  # a reasoning model can spend every token thinking
         print(f"[{attempt}/{MAX_ATTEMPTS}] used {response.usage.prompt_tokens} prompt + {response.usage.completion_tokens} output tokens")
         messages.append({"role": "assistant", "content": answer})
 
         code = extract_code(answer)
+        # only the first script is reviewed, so a fussy reviewer cannot burn every attempt
+        bug = review(client, prompt, code) if code and not reviewed else None
+        reviewed = reviewed or code is not None
         if code is None:
             error = "Your reply had no ```python code block."
+        elif bug:
+            caught.append(bug)
+            print(f"[{attempt}/{MAX_ATTEMPTS}] The reviewer agent found a bug: {bug}")
+            error = f"A code reviewer found this bug before running it: {bug}"
         else:
             print(f"[{attempt}/{MAX_ATTEMPTS}] Running it...")
             result, error = run_backtest(code, check)
             if result is not None:
-                return result
+                return result, caught
 
         print(f"[{attempt}/{MAX_ATTEMPTS}] It failed, sending the error back so Nemotron can fix it.")
         messages.append({"role": "user", "content": f"That failed with this error:\n{error}\n\nFix it and reply with the full corrected script."})
-    return None
+    return None, caught
 
 
 def readable(result, robustness=None):
@@ -256,6 +308,8 @@ def readable(result, robustness=None):
         f"Sharpe ratio: {result['sharpe']:.2f}\n"
         f"Max drawdown: {result['max_drawdown']:.1%}\n"
         f"Number of trades: {result['n_trades']}"
+        + (f" (WARNING: fewer than {MIN_TRADES} trades, far too few to trust; the verdict must be Weak)"
+           if result["n_trades"] < MIN_TRADES else "")
     )
     if robustness:
         beat = sum(v["edge"] > 0 for v in robustness["variants"])
@@ -296,14 +350,15 @@ def run(client, hypothesis=None):
     print(f"Hypothesis: {hypothesis}\n")
 
     EQUITY_FILE.unlink(missing_ok=True)  # never show the previous run's curve
-    result = research(client, PROMPT.format(hypothesis=hypothesis))
+    result, caught = research(client, PROMPT.format(hypothesis=hypothesis))
     code = BACKTEST_FILE.read_text(encoding="utf-8") if BACKTEST_FILE.exists() else ""
     equity = load_equity(EQUITY_FILE) if result else None  # read now: the robustness run reuses generated/
 
     robustness = None
     if result and "unsupported" not in result and result["total_return"] > benchmark(result)[1]:
         print("\nIt beat the S&P 500 on its active days. Checking whether that was luck...")
-        robustness = research(client, ROBUST.format(hypothesis=hypothesis, code=code), robust_problems)
+        # reviewed=True: the reviewer is tuned for backtests, not for the robustness script
+        robustness, _ = research(client, ROBUST.format(hypothesis=hypothesis, code=code), robust_problems, reviewed=True)
         if robustness:
             robustness["verdict"] = robust_verdict(robustness)
             print(f"Robustness: {robustness['verdict']}")
@@ -330,6 +385,7 @@ def run(client, hypothesis=None):
         "code": code,
         "equity": equity,
         "robustness": robustness,
+        "reviewer_caught": caught,
     }
     print(f"\nSaved {save_report(report)}")
     return report

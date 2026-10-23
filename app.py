@@ -5,11 +5,19 @@ import openai
 import pandas as pd
 import streamlit as st
 
-from agent import REPORTS_DIR, benchmark, make_client, run, verdict_word
+from agent import COST_PER_TRADE, MIN_TRADES, REPORTS_DIR, benchmark, make_client, run, verdict_word, with_cost
 
 # shortcut: counts today's reports on disk, so it resets if the host wipes the disk; enough to stop a public demo
 # from draining the API credits, swap for a real per-user limit if this ever gets real traffic
 MAX_RUNS_PER_DAY = 20  # a run costs a few cents; this caps a public demo at well under $1 a day
+
+EXAMPLES = {
+    "Dip buying (RSI-2)": "Buy SPY when its 2-day RSI closes below 10 and SPY is above its 200-day moving average; "
+                          "sell when SPY closes above its 5-day moving average",
+    "Micron overnight": "Overnight effect: buy Micron (MU) at every close and sell at the next day's open, every trading day",
+    "QQQ in a panic": "Buy QQQ when VIX (^VIX) closes above 30, sell after 10 trading days",
+    "Today's news": "",
+}
 
 st.set_page_config(page_title="Nemotron Quant Researcher", page_icon="📈")
 st.title("📈 Nemotron Quant Researcher")
@@ -19,8 +27,12 @@ st.caption(
     "Powered by NVIDIA Nemotron on Nebius Token Factory and Tavily search. Historical results only, not financial advice."
 )
 
+st.write("**Try an example**, or write your own idea below:")
+for col, (label, text) in zip(st.columns(len(EXAMPLES)), EXAMPLES.items()):
+    col.button(label, on_click=lambda t=text: st.session_state.update(hypothesis=t), use_container_width=True)
+
 with st.form("ask"):
-    hypothesis = st.text_input("Your hypothesis (leave empty to let the agent find one in today's news)")
+    hypothesis = st.text_input("Your hypothesis (leave empty to let the agent find one in today's news)", key="hypothesis")
     if st.form_submit_button("Run research"):
         runs_today = len(list(REPORTS_DIR.glob(f"{datetime.now(timezone.utc):%Y-%m-%d}_*.json")))
         if runs_today >= MAX_RUNS_PER_DAY:
@@ -38,26 +50,31 @@ with st.form("ask"):
                 )
 
 
-def show(report):
+def show(report, cost):
     st.subheader(report["hypothesis"])
     st.caption(report["date"])
+    for bug in report.get("reviewer_caught") or []:
+        st.info(f"🔍 **The reviewer agent caught a bug before the code ran**, and the coder fixed it: {bug}")
     result = report["result"]
     if result:
+        strategy = with_cost(result, cost)
         cols = st.columns(3)
-        cols[0].metric("Strategy", f"{result['total_return']:+.0%}")
+        cols[0].metric("Strategy", f"{strategy:+.0%}")
         if "spy_random_days_return" in result:  # older reports predate the fair benchmark
             label, bench = benchmark(result)
-            cols[1].metric(label, f"{bench:+.0%}", f"{result['total_return'] - bench:+.0%} vs S&P")
+            cols[1].metric(label, f"{bench:+.0%}", f"{strategy - bench:+.0%} vs S&P")
             cols[2].metric("Time in market", f"{result['time_in_market']:.0%}")
         cols = st.columns(3)
         cols[0].metric("Buy & hold", f"{result['buy_and_hold_return']:+.0%}")
         cols[1].metric("Max drawdown", f"{result['max_drawdown']:.0%}")
         cols[2].metric("Trades", result["n_trades"])
+        if result["n_trades"] < MIN_TRADES:
+            st.warning(f"Only {result['n_trades']} trades: far too few to tell skill from luck.")
     if report.get("equity"):  # older reports have no curve
         eq = report["equity"]
         st.line_chart(
             pd.DataFrame({"Strategy": eq["strategy"], "S&P 500 (buy & hold)": eq["spy"]}, index=pd.to_datetime(eq["date"])),
-            y_label="Growth of $1",
+            y_label=f"Growth of $1 (at {COST_PER_TRADE:.1%} cost per trade)",
             color=["#76B900", "#888888"],  # Strategy NVIDIA green, S&P grey
         )
     rob = report.get("robustness")
@@ -70,6 +87,8 @@ def show(report):
             pd.DataFrame(checks, columns=["Test", "Edge"]), hide_index=True,
             column_config={"Edge": st.column_config.NumberColumn(format="percent")},
         )
+    if result and cost != COST_PER_TRADE:
+        st.caption(f"The numbers above use your {cost:.2%} cost per trade; the chart and the text below were made at {COST_PER_TRADE:.1%}.")
     st.write(report["explanation"])
     if report["sources"]:
         st.markdown("**Inspired by:** " + " · ".join(f"[{s['title']}]({s['url']})" for s in report["sources"]))
@@ -78,12 +97,12 @@ def show(report):
     st.divider()
 
 
-def leaderboard(reports):
+def leaderboard(reports, cost):
     rows = [
         {
             "Hypothesis": r["hypothesis"],
-            "Edge vs S&P": r["result"]["total_return"] - benchmark(r["result"])[1],
-            "Strategy": r["result"]["total_return"],
+            "Edge vs S&P": with_cost(r["result"], cost) - benchmark(r["result"])[1],
+            "Strategy": with_cost(r["result"], cost),
             "Time in market": r["result"]["time_in_market"],
             "Robustness": (r.get("robustness") or {}).get("verdict", "–"),  # only run when the idea beat the S&P
             "Verdict": verdict_word(r),
@@ -94,7 +113,7 @@ def leaderboard(reports):
     if not rows:
         return
     st.header("🏆 Leaderboard")
-    st.caption("Every idea the agent has tested, ranked by how much it beat the S&P 500 on the days it was invested (or average S&P days when the idea trades SPY itself). All numbers include 0.1% trading costs per trade.")
+    st.caption("Every idea the agent has tested, ranked by how much it beat the S&P 500 on the days it was invested (or average S&P days when the idea trades SPY itself). Returns use the trading cost chosen above.")
     percent = st.column_config.NumberColumn(format="percent")
     st.dataframe(
         pd.DataFrame(rows).sort_values("Edge vs S&P", ascending=False),
@@ -107,6 +126,10 @@ def leaderboard(reports):
 reports = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(REPORTS_DIR.glob("*.json"), reverse=True)] if REPORTS_DIR.exists() else []
 if not reports:
     st.info("No research yet. Press Run research.")
-leaderboard(reports)
+cost = st.slider(
+    "Trading cost per trade (%)", 0.0, 0.5, COST_PER_TRADE * 100, 0.05,
+    help="Commission, spread and currency exchange together. A Swedish broker trading US stocks is often above 0.1%.",
+) / 100
+leaderboard(reports, cost)
 for report in reports:
-    show(report)
+    show(report, cost)

@@ -68,4 +68,18 @@ with tempfile.TemporaryDirectory() as tmp:
     (Path(tmp) / "2026-01-01_000000.json").write_text(json.dumps(report), encoding="utf-8")
     assert past_ideas(Path(tmp)) == "- Buy gold when the dollar falls -> Weak, Fragile"
 
+# cost slider: same cost changes nothing, zero cost undoes the 0.1% per trade
+from agent import parse_review, with_cost
+
+assert abs(with_cost(good, 0.001) - good["total_return"]) < 1e-12
+assert abs(with_cost({"total_return": 1.32, "n_trades": 2967}, 0.0) - (2.32 / 0.999 ** 2967 - 1)) < 1e-9
+
+# reviewer agent: "OK" passes, "BUG: ..." comes back as the bug text
+assert parse_review("OK") is None
+assert parse_review("Thinking...\nBUG: position only lasts one day; fill the holding period.") == \
+    "position only lasts one day; fill the holding period."
+
+# a handful of trades is flagged to the explainer
+assert "WARNING" in readable({**good, "n_trades": 2}) and "WARNING" not in readable(good)
+
 print("all tests passed")
