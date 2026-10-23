@@ -1,0 +1,32 @@
+name: Keep demo awake
+
+# Streamlit Community Cloud puts apps to sleep without traffic; judges should never land on the "Zzzz" page
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  visit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install playwright==1.48.0 && python -m playwright install --with-deps chromium
+      - name: Open the app and wake it if it sleeps
+        shell: python
+        run: |
+          from playwright.sync_api import sync_playwright
+
+          with sync_playwright() as p:
+              page = p.chromium.launch().new_page()
+              page.goto("https://nemotron-quant-researcher.streamlit.app/", timeout=60_000)
+              page.wait_for_timeout(8_000)
+              wake = page.get_by_role("button", name="Yes, get this app back up!")
+              if wake.count():
+                  print("App was asleep, waking it")
+                  wake.click()
+                  page.wait_for_timeout(90_000)
+              else:
+                  print("App was awake")
