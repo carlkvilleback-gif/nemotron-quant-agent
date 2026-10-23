@@ -298,10 +298,11 @@ def research(client, prompt, check=sanity_problems, reviewed=False):
     return None, caught
 
 
-def readable(result, robustness=None):
+def readable(result, robustness=None, cost=COST_PER_TRADE):
     # the model misreads raw fractions (262.3 read as +262%), so hand it percentages
     text = (
-        f"Strategy total return: {result['total_return']:+.1%}\n"
+        f"Strategy total return after the trader's own {cost:.2%} cost per trade: {with_cost(result, cost):+.1%} "
+        f"(before any costs: {with_cost(result, 0):+.1%})\n"
         f"Buy-and-hold total return: {result['buy_and_hold_return']:+.1%}\n"
         f"Time in market: {result['time_in_market']:.0%} of days\n"
         f"Fair benchmark, {benchmark(result)[0]}: {benchmark(result)[1]:+.1%}\n"
@@ -341,7 +342,7 @@ def make_client():
     return OpenAI(base_url="https://api.tokenfactory.nebius.com/v1/", api_key=os.environ["NEBIUS_API_KEY"])
 
 
-def run(client, hypothesis=None):
+def run(client, hypothesis=None, cost=COST_PER_TRADE):
     """Full research cycle. Without a hypothesis the agent finds one in today's news."""
     sources = []
     if not hypothesis:
@@ -372,12 +373,13 @@ def run(client, hypothesis=None):
         print(f"\nNumbers: {json.dumps(result)}\n")
         explanation = client.chat.completions.create(
             model=WRITER,
-            messages=[{"role": "user", "content": EXPLAIN.format(hypothesis=hypothesis, result=readable(result, robustness))}],
+            messages=[{"role": "user", "content": EXPLAIN.format(hypothesis=hypothesis, result=readable(result, robustness, cost))}],
         ).choices[0].message.content
     print(explanation)
 
     report = {
         "date": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "cost": cost,  # the trader's own cost per trade; the backtest itself always runs at COST_PER_TRADE
         "hypothesis": hypothesis,
         "sources": sources,
         "result": result,

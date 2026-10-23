@@ -11,6 +11,14 @@ from agent import COST_PER_TRADE, MIN_TRADES, REPORTS_DIR, benchmark, make_clien
 # from draining the API credits, swap for a real per-user limit if this ever gets real traffic
 MAX_RUNS_PER_DAY = 20  # a run costs a few cents; this caps a public demo at well under $1 a day
 
+COST_CHOICES = {  # round trip, buy + sell
+    0.0005: "0.05% · US broker, big ETF",
+    0.001: "0.1% · realistic default",
+    0.003: "0.3% · Swedish broker, US stocks",
+    0.005: "0.5% · expensive broker",
+}
+COST_TABLE = [0, 0.0005, 0.001, 0.002, 0.003, 0.005]
+
 EXAMPLES = {
     "Dip buying (RSI-2)": "Buy SPY when its 2-day RSI closes below 10 and SPY is above its 200-day moving average; "
                           "sell when SPY closes above its 5-day moving average",
@@ -33,6 +41,10 @@ for col, (label, text) in zip(st.columns(len(EXAMPLES)), EXAMPLES.items()):
 
 with st.form("ask"):
     hypothesis = st.text_input("Your hypothesis (leave empty to let the agent find one in today's news)", key="hypothesis")
+    my_cost = st.radio(
+        "Your trading cost per trade (buy + sell: commission, spread and currency exchange)",
+        list(COST_CHOICES), index=1, format_func=COST_CHOICES.get, horizontal=True,
+    )
     if st.form_submit_button("Run research"):
         runs_today = len(list(REPORTS_DIR.glob(f"{datetime.now(timezone.utc):%Y-%m-%d}_*.json")))
         if runs_today >= MAX_RUNS_PER_DAY:
@@ -40,7 +52,7 @@ with st.form("ask"):
         else:
             try:
                 with st.spinner("Researching... this takes 1-3 minutes"):
-                    run(make_client(), hypothesis)
+                    run(make_client(), hypothesis, my_cost)
             except openai.APIStatusError as e:
                 if e.status_code != 402:
                     raise
@@ -50,7 +62,28 @@ with st.form("ask"):
                 )
 
 
-def show(report, cost):
+def cost_box(result, cost):
+    """How much trading costs ate, and what the idea returns at other costs."""
+    before, after = with_cost(result, 0), with_cost(result, cost)
+    bench = benchmark(result)[1]
+    with st.container(border=True):
+        st.markdown(
+            f"**💸 Trading costs:** {result['n_trades']} trades at {cost:.2%} each turn **{before:+.0%}** before costs "
+            f"into **{after:+.0%}**, so costs ate {before - after:.0%} of return."
+        )
+        st.dataframe(
+            pd.DataFrame(
+                [(f"{c:.2%}", with_cost(result, c), with_cost(result, c) - bench) for c in COST_TABLE],
+                columns=["Cost per trade", "Strategy", "Edge vs S&P"],
+            ),
+            hide_index=True,
+            column_config={"Strategy": st.column_config.NumberColumn(format="percent"),
+                           "Edge vs S&P": st.column_config.NumberColumn(format="percent")},
+        )
+
+
+def show(report):
+    cost = report.get("cost", COST_PER_TRADE)  # reports made before the cost choice used the default
     st.subheader(report["hypothesis"])
     st.caption(report["date"])
     for bug in report.get("reviewer_caught") or []:
@@ -70,6 +103,8 @@ def show(report, cost):
         cols[2].metric("Trades", result["n_trades"])
         if result["n_trades"] < MIN_TRADES:
             st.warning(f"Only {result['n_trades']} trades: far too few to tell skill from luck.")
+        if "spy_random_days_return" in result:
+            cost_box(result, cost)
     if report.get("equity"):  # older reports have no curve
         eq = report["equity"]
         st.line_chart(
@@ -88,7 +123,7 @@ def show(report, cost):
             column_config={"Edge": st.column_config.NumberColumn(format="percent")},
         )
     if result and cost != COST_PER_TRADE:
-        st.caption(f"The numbers above use your {cost:.2%} cost per trade; the chart and the text below were made at {COST_PER_TRADE:.1%}.")
+        st.caption(f"The chart uses the {COST_PER_TRADE:.1%} default cost; the numbers and the text use this idea's {cost:.2%}.")
     st.write(report["explanation"])
     if report["sources"]:
         st.markdown("**Inspired by:** " + " · ".join(f"[{s['title']}]({s['url']})" for s in report["sources"]))
@@ -127,11 +162,11 @@ reports = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(REPORTS_DIR
 if not reports:
     st.info("No research yet. Press Run research.")
 cost = st.slider(
-    "Trading cost per trade (%) · 0.1 is a realistic default", 0.0, 0.5, COST_PER_TRADE * 100, 0.05,
+    "Trading cost for the leaderboard (%) · 0.1 is a realistic default", 0.0, 0.5, COST_PER_TRADE * 100, 0.05,
     help="What you pay your broker each time you buy and sell: commission, spread and currency exchange. "
          "Moving it does not cost anything or call the AI; it only shows what the results would be at that cost. "
          "0 is theory, about 0.1 is a cheap broker on a big ETF, 0.2-0.5 is common for a Swedish broker trading US stocks.",
 ) / 100
 leaderboard(reports, cost)
 for report in reports:
-    show(report, cost)
+    show(report)

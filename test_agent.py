@@ -79,6 +79,10 @@ assert parse_review("OK") is None
 assert parse_review("Thinking...\nBUG: position only lasts one day; fill the holding period.") == \
     "position only lasts one day; fill the holding period."
 
+# the explanation is told the trader's own cost, plus the result before costs
+text = readable(good, cost=0.003)
+assert "0.30% cost per trade" in text and f"{with_cost(good, 0.003):+.1%}" in text and f"{with_cost(good, 0):+.1%}" in text
+
 # a handful of trades is flagged to the explainer
 assert "WARNING" in readable({**good, "n_trades": 2}) and "WARNING" not in readable(good)
 
