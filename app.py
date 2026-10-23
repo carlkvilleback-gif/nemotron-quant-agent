@@ -153,7 +153,8 @@ def leaderboard(reports, cost):
     st.dataframe(
         pd.DataFrame(rows).sort_values("Edge vs S&P", ascending=False),
         hide_index=True,
-        column_config={"Edge vs S&P": percent, "Strategy": percent, "Time in market": percent},
+        column_config={"Hypothesis": st.column_config.TextColumn(width="medium"),  # keep Robustness and Verdict in view
+                       "Edge vs S&P": percent, "Strategy": percent, "Time in market": percent},
     )
     st.header("📄 Reports")
 
