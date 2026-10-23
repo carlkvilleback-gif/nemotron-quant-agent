@@ -6,6 +6,14 @@ Built for the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackat
 
 **Live demo:** https://nemotron-quant-researcher.streamlit.app · **Video:** _add YouTube link here_
 
+![Start page: example ideas and your own trading cost](docs/home.jpg)
+
+| Every idea ranked by its edge over the S&P 500 | The reviewer agent catching a bug before the code ran |
+|---|---|
+| ![Leaderboard](docs/leaderboard.jpg) | ![Report with reviewer catch and trading-cost box](docs/report.jpg) |
+
+![What trading costs do to an idea, and its equity curve against the S&P 500](docs/costs-chart.jpg)
+
 ## Why
 
 Most trading ideas sound good in a headline and fail in a backtest. Testing one by hand takes an evening of pandas. This agent tests one in about two minutes, and it is honest about the result: most ideas come back "Weak", which is the point.
