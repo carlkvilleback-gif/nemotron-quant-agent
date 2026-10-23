@@ -127,8 +127,10 @@ reports = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(REPORTS_DIR
 if not reports:
     st.info("No research yet. Press Run research.")
 cost = st.slider(
-    "Trading cost per trade (%)", 0.0, 0.5, COST_PER_TRADE * 100, 0.05,
-    help="Commission, spread and currency exchange together. A Swedish broker trading US stocks is often above 0.1%.",
+    "Trading cost per trade (%) · 0.1 is a realistic default", 0.0, 0.5, COST_PER_TRADE * 100, 0.05,
+    help="What you pay your broker each time you buy and sell: commission, spread and currency exchange. "
+         "Moving it does not cost anything or call the AI; it only shows what the results would be at that cost. "
+         "0 is theory, about 0.1 is a cheap broker on a big ETF, 0.2-0.5 is common for a Swedish broker trading US stocks.",
 ) / 100
 leaderboard(reports, cost)
 for report in reports:
