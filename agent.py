@@ -226,7 +226,8 @@ def research(client, prompt, check=sanity_problems):
     messages = [{"role": "user", "content": prompt}]
     for attempt in range(1, MAX_ATTEMPTS + 1):
         print(f"[{attempt}/{MAX_ATTEMPTS}] Nemotron is writing the backtest...")
-        response = client.chat.completions.create(model=CODER, messages=messages)
+        # Ultra reasons before it writes; at the default 8192-token cap it was cut off mid-script
+        response = client.chat.completions.create(model=CODER, messages=messages, max_tokens=32768)
         answer = response.choices[0].message.content
         print(f"[{attempt}/{MAX_ATTEMPTS}] used {response.usage.prompt_tokens} prompt + {response.usage.completion_tokens} output tokens")
         messages.append({"role": "assistant", "content": answer})
