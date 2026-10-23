@@ -9,7 +9,7 @@ from agent import REPORTS_DIR, benchmark, make_client, run, verdict_word
 
 # shortcut: counts today's reports on disk, so it resets if the host wipes the disk; enough to stop a public demo
 # from draining the API credits, swap for a real per-user limit if this ever gets real traffic
-MAX_RUNS_PER_DAY = 5  # a run costs about $1 of Nemotron Ultra credits, not cents
+MAX_RUNS_PER_DAY = 20  # a run costs a few cents; this caps a public demo at well under $1 a day
 
 st.set_page_config(page_title="Nemotron Quant Researcher", page_icon="📈")
 st.title("📈 Nemotron Quant Researcher")
@@ -33,7 +33,7 @@ with st.form("ask"):
                 if e.status_code != 402:
                     raise
                 st.warning(
-                    "The demo's free API credits are used up for now, so new research is paused. "
+                    "The demo's API account is paused right now, so new research is on hold. "
                     "Every report below was produced by the agent earlier and is shown unchanged."
                 )
 
