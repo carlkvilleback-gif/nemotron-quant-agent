@@ -12,8 +12,6 @@ The code runs in a sandbox without any API keys. If it crashes, or the numbers a
 
 Now the honest part. Overnight trading in Micron returned over four thousand percent. But with point one percent cost per trade, almost three thousand trades turn that into one hundred and thirty-two percent. If you had simply held Micron, you would have made over two thousand percent. So the strategy doesn't really work in real-life scenarios.
 
-You choose your own cost, and every report shows exactly what costs eat.
-
 And when an idea does beat the S and P five hundred, the agent checks if it was just luck. It re-tests both halves of the history, doubles the costs, and moves every number in the rule. Gold when the dollar falls looked great. After costs, it lost to the S and P, once again proving that the strategy would not work in real life.
 
 Every idea lands on a leaderboard, ranked by how much it beat the S and P on the days it was actually invested. And the agent remembers what it tested, so it doesn't repeat itself.
@@ -22,4 +20,4 @@ Every weekday morning it runs completely by itself, and a full research cycle co
 
 Most ideas come back weak. That's the point. Better to find out from an agent than from your bank account.
 
-Have fun testing it! A few things to know. To protect my credits from spam, the public demo runs ten times a day, so if it's paused, try again tomorrow. It uses free daily price data from twenty fifteen until today, so it can't test fundamentals like EV to EBIT, or insider buying. And remember, this is research, not financial advice.
+Have fun testing it! To protect my credits, the demo runs ten times a day. It uses free daily prices from twenty fifteen, so no fundamentals like EV to EBIT. And remember, this is research, not financial advice.
