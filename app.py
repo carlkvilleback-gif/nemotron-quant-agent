@@ -9,7 +9,7 @@ from agent import COST_PER_TRADE, MIN_TRADES, REPORTS_DIR, benchmark, make_clien
 
 # shortcut: counts today's reports on disk, so it resets if the host wipes the disk; enough to stop a public demo
 # from draining the API credits, swap for a real per-user limit if this ever gets real traffic
-MAX_RUNS_PER_DAY = 20  # a run costs a few cents; this caps a public demo at well under $1 a day
+MAX_RUNS_PER_DAY = 10  # a run costs a few cents; this caps a public demo at well under $1 a day
 
 COST_CHOICES = {  # round trip, buy + sell
     0.0005: "0.05% · US broker, big ETF",
