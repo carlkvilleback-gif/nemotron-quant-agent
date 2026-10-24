@@ -20,4 +20,4 @@ Every weekday morning it runs completely by itself, and a full research cycle co
 
 Most ideas come back weak. That's the point. Better to find out from an agent than from your bank account.
 
-Have fun testing it! To protect my credits, the demo runs ten times a day. It uses free daily prices from twenty fifteen, so no fundamentals like EV to EBIT. And remember, this is research, not financial advice.
+Have fun testing it! To protect my credits, the demo runs a maximum of ten times a day. It uses free daily prices from twenty fifteen, so no fundamentals like EV to EBIT. And remember, this is research, not financial advice.

@@ -4,3 +4,4 @@ __pycache__/
 generated/
 .claude/
 .streamlit/secrets.toml
+nemotron-demo.mp4
