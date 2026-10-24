@@ -4,7 +4,7 @@ An AI agent that does the boring part of quant research on its own: it reads tod
 
 Built for the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/) (Coding and Agentic Engineering track).
 
-**Live demo:** https://nemotron-quant-researcher.streamlit.app · **Video:** _add YouTube link here_
+**Live demo:** https://nemotron-quant-researcher.streamlit.app · **Video:** https://youtu.be/MmC2k_Cz-iQ
 
 ![Start page: example ideas and your own trading cost](docs/home.jpg)
 
