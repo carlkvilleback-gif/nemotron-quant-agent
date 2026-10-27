@@ -5,3 +5,5 @@ generated/
 .claude/
 .streamlit/secrets.toml
 nemotron-demo.mp4
+# graphify knowledge graph output
+graphify-out/
