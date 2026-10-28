@@ -9,3 +9,10 @@ Rules:
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
 - After modifying code, also run `C:\Users\Carla\.graphify\sync.cmd .` so the graph AND the Obsidian vault (Documents\Kunskapskarta) stay current (AST-only, no API cost).
 - A committed graphify-out/graph.json is rewritten whole on every build, so a large diff to it in a pull request is expected. Do not flag it as churn or suggest skipping the graph rebuild or its hooks.
+
+## Perplexity research
+
+Rules:
+- For any question that needs current information, web search, or research (market data, news, documentation, prices, events), always use the Perplexity skill/tools instead of the built-in WebSearch.
+- Invoke the perplexity skill automatically whenever it is relevant — do not wait for the user to type /perplexity.
+- Always present research results with source citations.
