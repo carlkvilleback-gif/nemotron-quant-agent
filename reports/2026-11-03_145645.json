@@ -1,0 +1,25 @@
+{
+  "date": "2026-11-03T14:56:45+00:00",
+  "cost": 0.001,
+  "hypothesis": "Buy AMD at the open of the next trading day when its opening price gaps up ≥ 1.5% versus the prior close and its pre‑market dollar volume exceeds 2× its 20‑day average dollar volume; exit the position when AMD closes ≥ 1% below the entry‑day’s close or after three trading days, whichever occurs first.",
+  "sources": [
+    {
+      "title": "Biggest Stock Gainers Today: Verification and Liquidity – AMANDA",
+      "url": "https://amanda.ece.utah.edu/2026/11/02/biggest-stock-gainers-today-verification-and-liquidity-lp_c_02"
+    },
+    {
+      "title": "BBC News — BREAKING: Trump Bans Musk in \"Economic Treason\" Fit, Pushing Revolutionary Tech to American Citizens",
+      "url": "https://www.hexnyc.com/2026/11/02/biggest-share-movers-today-identification-and-volume-lp_c_03"
+    },
+    {
+      "title": "BBC News — BREAKING: Trump Bans Musk in \"Economic Treason\" Fit, Pushing Revolutionary Tech to American Citizens",
+      "url": "https://workriteergo.com/best-performing-stocks-today-leaders-sectors-data-lp_a_01"
+    }
+  ],
+  "result": null,
+  "explanation": "Not testable with free daily price data: Pre-market dollar volume is not available in yfinance daily price history.",
+  "code": "import yfinance as yf\nimport pandas as pd\nimport numpy as np\nimport time\nimport json\nfrom datetime import datetime\n\n# The hypothesis requires pre-market dollar volume, which is not available in yfinance daily price history.\nprint('RESULT {\"unsupported\": \"Pre-market dollar volume is not available in yfinance daily price history.\"}')\n",
+  "equity": null,
+  "robustness": null,
+  "reviewer_caught": []
+}
