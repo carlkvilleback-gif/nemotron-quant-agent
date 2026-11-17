@@ -1,0 +1,49 @@
+{
+  "date": "2026-11-17T16:48:54+00:00",
+  "cost": 0.001,
+  "hypothesis": "Enter a long position in BTC‑USD at the open of the next trading day when GC=F closes up ≥ 1.0% versus the prior close and the US 10‑year Treasury yield (^TNX) closes down ≥ 4 bps versus the prior close; exit when BTC‑USD closes ≥ 2.0% above the entry‑day’s close or after three trading days, whichever occurs first.",
+  "sources": [
+    {
+      "title": "Bitcoin’s Next Big Move Depends on Macro Conditions, Says Jordi Visser: Wall Street Investor ‘Surprised’ BTC…",
+      "url": "https://www.benzinga.com/crypto/cryptocurrency/26/11/63330658/jordi-visser-bitcoin-outlook-macro-inflation-liquidity-interest-rates"
+    },
+    {
+      "title": "If a Stock Market Crash Is Coming, Here’s the Most Important Move Warren Buffett Would Make Right Now | The Motley Fool",
+      "url": "https://www.fool.com/investing/2026/11/17/if-a-stock-market-crash-is-coming-heres-the-most-important-move-warren-buffett-would-make-right-now"
+    },
+    {
+      "title": "Sumitomo Mitsui Financial Group Inc Stock (SMFG) Moved Down by 3.14% on Nov 17: What Investors Need To Know",
+      "url": "https://www.tradingkey.com/news/market-movers/262309259-market-movers-smfg-20261117"
+    },
+    {
+      "title": "Applovin Corp Stock (APP) Moved Down by 3.07% on Nov 17: Key Drivers Unveiled",
+      "url": "https://www.tradingkey.com/news/market-movers/262309262-market-movers-app-20261117"
+    }
+  ],
+  "result": {
+    "traded_ticker": "BTC-USD",
+    "total_return": -0.10381241786106943,
+    "buy_and_hold_return": 201.8583097082334,
+    "spy_same_days_return": 0.36832386495504066,
+    "spy_random_days_return": NaN,
+    "time_in_market": 0.1085503572251671,
+    "sharpe": 0.06711875456790664,
+    "max_drawdown": -0.5919627730337877,
+    "n_trades": 135
+  },
+  "explanation": "\n\nAfter accounting for the 0.10 % per‑trade cost, the strategy lost about 10 % over the period, while simply holding BTC‑USD would have returned more than 20 000 %. It also underperformed the S&P 500 benchmark earned on the same days the strategy was active (+36.8 %), indicating no edge over a passive equity exposure. The approach was very risky — low Sharpe (0.07), large drawdowns (‑59.2 %), and only 11 % of days in market — suggesting the results are likely due to chance rather than a repeatable advantage.  \n\nVerdict: **Weak**.",
+  "code": "import yfinance as yf\nimport pandas as pd\nimport numpy as np\nimport time\nimport json\nimport sys\n\ndef download_ticker(ticker: str) -> pd.Series:\n    \"\"\"Download daily close prices for a ticker with retries.\"\"\"\n    for attempt in range(3):\n        try:\n            df = yf.download(ticker, start=\"2015-01-01\", auto_adjust=True, progress=False)\n            if df.empty:\n                raise ValueError(\"Empty DataFrame\")\n            close = df[\"Close\"].squeeze()\n            if isinstance(close, pd.DataFrame):\n                # If multiple columns remain (should not happen for single ticker), take first\n                close = close.iloc[:, 0]\n            close.name = ticker\n            return close\n        except Exception as e:\n            if attempt == 2:\n                raise RuntimeError(f\"Failed to download {ticker} after 3 attempts: {e}\")\n            time.sleep(3)\n    return pd.Series(dtype=float)  # Unreachable\n\ndef main():\n    # 1. Download data\n    try:\n        btc_close = download_ticker(\"BTC-USD\")\n        gc_close = download_ticker(\"GC=F\")\n        tnx_close = download_ticker(\"^TNX\")\n        spy_close = download_ticker(\"SPY\")\n    except RuntimeError as e:\n        print(f'RESULT {{\"unsupported\": \"{e}\"}}')\n        sys.exit(0)\n\n    # 2. Align all series to BTC-USD calendar (daily, includes weekends)\n    master_idx = btc_close.index\n    gc = gc_close.reindex(master_idx, method=\"ffill\")\n    tnx = tnx_close.reindex(master_idx, method=\"ffill\")\n    spy = spy_close.reindex(master_idx, method=\"ffill\")\n\n    # 3. Prepare numpy arrays for speed\n    dates = master_idx.values\n    btc = btc_close.values.astype(float)\n    gc_v = gc.values.astype(float)\n    tnx_v = tnx.values.astype(float)\n    spy_v = spy.values.astype(float)\n    n = len(btc)\n\n    # Daily returns (close-to-close)\n    btc_ret = np.zeros(n)\n    btc_ret[1:] = btc[1:] / btc[:-1] - 1.0\n    spy_ret = np.zeros(n)\n    spy_ret[1:] = spy_v[1:] / spy_v[:-1] - 1.0\n\n    # 4. Entry signals on day T (using prior close T-1)\n    gc_pct = np.zeros(n)\n    gc_pct[1:] = gc_v[1:] / gc_v[:-1] - 1.0\n    tnx_chg = np.zeros(n)\n    tnx_chg[1:] = tnx_v[1:] - tnx_v[:-1]  # absolute yield change\n    entry_signal = (gc_pct >= 0.01) & (tnx_chg <= -0.04)  # 1% up, 4bps down\n    entry_signal[0] = False  # no prior day for first row\n\n    # 5. Backtest loop (position management)\n    holding = np.zeros(n, dtype=bool)\n    in_pos = False\n    entry_price = 0.0\n    days_held = 0\n    n_trades = 0\n\n    for i in range(n):\n        if in_pos:\n            holding[i] = True\n            days_held += 1\n            # Check exit at close of day i\n            if btc[i] >= entry_price * 1.02 or days_held >= 3:\n                in_pos = False\n        else:\n            if entry_signal[i]:\n                in_pos = True\n                entry_price = btc[i]\n                days_held = 0\n                holding[i] = True\n                n_trades += 1\n            else:\n                holding[i] = False\n\n    # Position is held from next day's open (close-to-close convention: shift holding by 1)\n    position = np.zeros(n, dtype=bool)\n    position[1:] = holding[:-1]\n\n    # 6. Strategy returns with costs\n    strat_ret = position * btc_ret\n    # Cost 0.1% per entry (round-trip) applied on first day position == True\n    entry_days = np.where((position[1:] == True) & (position[:-1] == False))[0] + 1\n    strat_ret[entry_days] -= 0.001\n\n    # 7. Equity curves\n    strat_eq = np.cumprod(1.0 + strat_ret)\n    btc_eq = np.cumprod(1.0 + btc_ret)\n    spy_eq = np.cumprod(1.0 + spy_ret)\n\n    # 8. Performance metrics\n    total_return = float(strat_eq[-1] - 1.0)\n    buy_and_hold_return = float(btc_eq[-1] - 1.0)\n\n    # SPY benchmarks\n    pos_mask = position.astype(bool)\n    n_days_held = int(pos_mask.sum())\n    spy_same_days_return = float(np.prod(1.0 + spy_ret[pos_mask]) - 1.0) if n_days_held > 0 else 0.0\n    spy_random_days_return = float((1.0 + spy_ret.mean()) ** n_days_held - 1.0) if n_days_held > 0 else 0.0\n\n    time_in_market = float(n_days_held / n) if n > 0 else 0.0\n\n    # Sharpe (annualised with sqrt(365) for crypto)\n    mean_r = strat_ret.mean()\n    std_r = strat_ret.std(ddof=1)\n    sharpe = float((mean_r / std_r) * np.sqrt(365)) if std_r > 0 else 0.0\n\n    # Max drawdown\n    running_max = np.maximum.accumulate(strat_eq)\n    drawdown = strat_eq / running_max - 1.0\n    max_drawdown = float(drawdown.min())\n\n    # 9. Save equity.csv\n    eq_df = pd.DataFrame({\n        \"date\": dates,\n        \"strategy\": strat_eq,\n        \"spy\": spy_eq\n    })\n    eq_df.to_csv(\"equity.csv\", index=False)\n\n    # 10. Output RESULT\n    result = {\n        \"traded_ticker\": \"BTC-USD\",\n        \"total_return\": total_return,\n        \"buy_and_hold_return\": buy_and_hold_return,\n        \"spy_same_days_return\": spy_same_days_return,\n        \"spy_random_days_return\": spy_random_days_return,\n        \"time_in_market\": time_in_market,\n        \"sharpe\": sharpe,\n        \"max_drawdown\": max_drawdown,\n        \"n_trades\": n_trades\n    }\n    print(f'RESULT {json.dumps(result)}')\n\nif __name__ == \"__main__\":\n    main()\n",
+  "equity": {
+    "date": [
+      "2015-01-04"
+    ],
+    "strategy": [
+      1.0
+    ],
+    "spy": [
+      1.0
+    ]
+  },
+  "robustness": null,
+  "reviewer_caught": []
+}
